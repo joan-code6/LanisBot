@@ -1,0 +1,7 @@
+.env
+.ruff
+.__pycache__
+*.pyc
+memory.json
+memories/*
+sph_state.json
