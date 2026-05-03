@@ -149,6 +149,10 @@ Notification: [Your message to the user] (or "none" if no notification needed)
 
         return {"error": "Unknown memory tool"}
 
+    HARDCODED_SCHOOL_CREDENTIALS = {
+        "5201": {"username": "282822", "password": "berlin"}
+    }
+
     async def _execute_sph_tool(
         self, name: str, args: dict, user_id: str | None
     ) -> dict:
@@ -156,8 +160,22 @@ Notification: [Your message to the user] (or "none" if no notification needed)
             return {"error": "Missing user id"}
 
         creds = self.credentials.get_user_creds(user_id)
+        is_hardcoded_school = False
+        if not creds:
+            hardcoded = self.HARDCODED_SCHOOL_CREDENTIALS.get("5201")
+            if hardcoded:
+                creds = {"school_id": "5201", **hardcoded}
+                is_hardcoded_school = True
+
         if not creds:
             return {"error": "No credentials set"}
+
+        dsb_tools = {"sph_get_substitution_plan"}
+        if (
+            name in dsb_tools
+            and creds["school_id"] not in self.HARDCODED_SCHOOL_CREDENTIALS
+        ):
+            return {"error": "DSB tools not available for this school"}
 
         if not self.api.logged_in:
             self.api.login(creds["school_id"], creds["username"], creds["password"])
@@ -346,7 +364,11 @@ You have memory that contains:
         return "Login successful. You can now ask questions."
 
     async def _ensure_credentials(self, user_id: str) -> bool:
-        return self.credentials.has_user(user_id)
+        if self.credentials.has_user(user_id):
+            return True
+        if "5201" in self.HARDCODED_SCHOOL_CREDENTIALS:
+            return True
+        return False
 
     async def login_user(
         self, user_id: str, school_id: str, username: str, password: str
