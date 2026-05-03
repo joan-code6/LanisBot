@@ -94,7 +94,12 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "sph_get_substitution_plan",
-            "description": "Fetch substitution plan (Vertretungsplan)",
+            "description": """
+Fetch substitution plan (Vertretungsplan)
+Notes:
+- Person1 ? Person2 means Person2 is substituting for Person1
+- EVL (Eigenverantwortliches Lernen) officially means you have to stay in school but Students dont care and treat it as if its Entfall.
+""",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -257,7 +262,7 @@ class HAIClient:
         system_prompt = self._build_system_prompt(memory, user_data)
         messages = [{"role": "user", "content": user_message}]
 
-        max_tool_rounds = 5
+        max_tool_rounds = 10
         for _ in range(max_tool_rounds):
             msg = await self.chat(messages, system_prompt, tools=True)
 
