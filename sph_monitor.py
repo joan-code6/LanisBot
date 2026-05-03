@@ -10,11 +10,26 @@ import sph_client
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+CHECK_INTERVAL = 15 * 60
+WORK_START_HOUR = 6
+WORK_END_HOUR = 15
+
+
+def create_user_monitor(user_id: str, credentials: dict, callback=None) -> "SPHMonitor":
+    state_file = f"sph_state_{user_id}.json"
+    return SPHMonitor(state_file=state_file, callback=callback, credentials=credentials)
+
 
 class SPHMonitor:
-    def __init__(self, state_file: str = "sph_state.json", callback=None):
+    def __init__(
+        self,
+        state_file: str = "sph_state.json",
+        callback=None,
+        credentials: dict | None = None,
+    ):
         self.state_file = Path(state_file)
         self.callback = callback
+        self.credentials = credentials
         self.api = sph_client.SchulportalHessenAPI()
         self.previous_state = self._load_state()
         self.running = False
@@ -35,9 +50,21 @@ class SPHMonitor:
         return hashlib.sha256(str(data).encode()).hexdigest()
 
     async def login(self):
-        result = self.api.login_using_env()
+        if self.credentials:
+            result = self.api.login(
+                self.credentials["school_id"],
+                self.credentials["username"],
+                self.credentials["password"],
+            )
+        else:
+            result = self.api.login_using_env()
         logger.info(f"Login result: {result}")
         return result
+
+    def _is_within_working_hours(self) -> bool:
+        now = datetime.now()
+        current_hour = now.hour
+        return WORK_START_HOUR <= current_hour < WORK_END_HOUR
 
     async def check_changes(self) -> list[dict]:
         changes = []
@@ -56,7 +83,7 @@ class SPHMonitor:
                 )
                 self.previous_state["messages"] = messages_hash
 
-            substitution = self.api.dsb_get_substitution_plan()
+            substitution = self.api.dsb_get_substitution_plan(password="berlin", username="282822")
             substitution_hash = self._hash_data(substitution)
             if "substitution" not in self.previous_state:
                 self.previous_state["substitution"] = substitution_hash
@@ -102,7 +129,7 @@ class SPHMonitor:
 
         return changes
 
-    async def start_monitoring(self, interval: int = 300):
+    async def start_monitoring(self, interval: int = CHECK_INTERVAL):
         self.running = True
 
         await self.login()
@@ -112,11 +139,14 @@ class SPHMonitor:
                 if not self.api.logged_in:
                     await self.login()
 
-                changes = await self.check_changes()
+                if self._is_within_working_hours():
+                    changes = await self.check_changes()
 
-                if changes and self.callback:
-                    for change in changes:
-                        await self.callback(change)
+                    if changes and self.callback:
+                        for change in changes:
+                            await self.callback(change)
+                else:
+                    logger.info("Outside working hours (6am-3pm), skipping check")
 
                 await asyncio.sleep(interval)
 

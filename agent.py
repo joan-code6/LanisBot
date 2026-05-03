@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from credentials_store import CredentialsStore
 from hai_client import HAIClient
 from memory import Memory
-from sph_monitor import SPHMonitor
+from sph_monitor import SPHMonitor, create_user_monitor
 
 try:
     import discord
@@ -32,7 +32,7 @@ class SPHAgent:
         self.api = sph_client.SchulportalHessenAPI()
         self.credentials = CredentialsStore()
         self.discord_bot = None
-        self.sph_monitor = None
+        self.user_monitors: dict[str, asyncio.Task] = {}
         self.user_memories: dict[str, Memory] = {}
 
     async def initialize(self):
@@ -352,7 +352,10 @@ You have memory that contains:
     async def run(self):
         await self.initialize()
 
-        self.sph_monitor = None
+        for user_id in self.credentials.data.keys():
+            creds = self.credentials.get_user_creds(user_id)
+            if creds:
+                await self._start_user_monitor(user_id, creds)
 
         discord_token = os.getenv("DISCORD_BOT_TOKEN")
         if discord_token and DISCORD_AVAILABLE:
@@ -360,10 +363,62 @@ You have memory that contains:
             setup_tree(self.discord_bot)
             await self.discord_bot.start_bot(discord_token)
         else:
-            logger.warning(
-                "DISCORD_BOT_TOKEN not set or discord.py not installed, Discord bot not started"
-            )
+            while True:
+                await asyncio.sleep(60)
+
+    async def _start_user_monitor(self, user_id: str, creds: dict):
+        if user_id in self.user_monitors:
             return
+
+        async def monitor_for_user():
+            captured_user_id = user_id
+
+            async def callback_wrapper(change):
+                await self._on_sph_change(captured_user_id, change)
+
+            monitor = create_user_monitor(user_id, creds, callback=callback_wrapper)
+            await monitor.start_monitoring()
+
+        self.user_monitors[user_id] = asyncio.create_task(monitor_for_user())
+
+    async def _on_sph_change(self, user_id: str, change: dict):
+        change_type = change.get("type")
+        change_data = change.get("data")
+        logger.info(f"SPH change for {user_id}: {change_type}")
+
+        user_memory = self._get_user_memory(user_id)
+
+        prompt = f"""A change was detected in the SchulportalHessen:
+        
+Type: {change_type}
+Data: {json.dumps(change_data, ensure_ascii=False)}
+
+Analyze this change and decide if any action is needed. If the user should be notified, draft a notification message. Also if any action should be taken (like adding to-do, reminders, etc.), respond with the action JSON.
+
+Respond in this format:
+Notification: [Your message to the user] (or "none" if no notification needed)
+{{"action": "action_name", "params": {{...}}}} (or nothing if no action needed)"""
+
+        user_memory["conversation"] = user_memory.get("conversation", [])
+        user_memory["conversation"].append(
+            {"role": "system", "content": f"SPH Change: {change_type}"}
+        )
+
+        system_prompt = self._build_system_prompt(user_memory)
+        response = await self.hai.chat(
+            [{"role": "user", "content": prompt}],
+            system_prompt=system_prompt,
+            tools=False,
+        )
+        final_response = response.get("content", "")
+        notification = self._extract_notification(final_response)
+
+        self._save_user_memory(user_id)
+
+        if notification and notification != "none" and self.discord_bot:
+            user = self.discord_bot.get_user(int(user_id))
+            if user:
+                await user.send(notification)
 
     async def _handle_login_command(self, user_message: str, user_id: str) -> str:
         parts = user_message.strip().split()
@@ -384,6 +439,10 @@ You have memory that contains:
             return f"Login failed: {e}"
 
         self.credentials.set_user_creds(user_id, school_id, username, password)
+        await self._start_user_monitor(
+            user_id,
+            {"school_id": school_id, "username": username, "password": password},
+        )
         return "Login successful. You can now ask questions."
 
     async def _ensure_credentials(self, user_id: str) -> bool:
@@ -404,11 +463,18 @@ You have memory that contains:
             return f"Login failed: {e}"
 
         self.credentials.set_user_creds(user_id, school_id, username, password)
+        await self._start_user_monitor(
+            user_id,
+            {"school_id": school_id, "username": username, "password": password},
+        )
         return "Login successful. You can now ask questions."
 
     def logout_user(self, user_id: str) -> str:
         self.credentials.remove_user_creds(user_id)
-        return "Logged out. Credentials removed."
+        if user_id in self.user_monitors:
+            self.user_monitors[user_id].cancel()
+            del self.user_monitors[user_id]
+        return "Logged out. Credentials and monitor removed."
 
     def delete_all_user_data(self, user_id: str) -> str:
         self.credentials.remove_user_creds(user_id)
