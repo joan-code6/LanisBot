@@ -35,7 +35,7 @@ class SPHDiscordBot(discord.Client):
         logger.info(f"Logged in as {self.user}")
         await self.setup()
 
-async def on_message(self, message):
+    async def on_message(self, message):
         if message.author.bot:
             return
 
@@ -45,11 +45,11 @@ async def on_message(self, message):
         user_message = message.content.strip()
         if not user_message:
             return
-        
+
         thinking_msg = await message.reply("🤔 thinking...")
-        
+
         progress_text = []
-        
+
         async def progress_callback(update: str):
             progress_text.append(update)
             combined = "🤔 **thinking...**\n\n" + "\n\n".join(progress_text)
@@ -57,12 +57,13 @@ async def on_message(self, message):
                 await thinking_msg.edit(content=combined[:2000])
             except Exception:
                 pass
-            
+
         response = await self.agent.handle_message(
-            user_message, user_id=str(message.author.id),
-            progress_callback=progress_callback
+            user_message,
+            user_id=str(message.author.id),
+            progress_callback=progress_callback,
         )
-        
+
         await thinking_msg.edit(content=response[:2000])
 
     async def start_bot(self, token: str):
@@ -83,11 +84,11 @@ async def ask_command(interaction: discord.Interaction, question: str):
         return
 
     await interaction.response.defer()
-    
+
     thinking_msg = await interaction.followup_send("🤔 thinking...", ephemeral=True)
-    
+
     progress_text = []
-    
+
     async def progress_callback(update: str):
         progress_text.append(update)
         combined = "🤔 **thinking...**\n\n" + "\n\n".join(progress_text)
@@ -95,10 +96,9 @@ async def ask_command(interaction: discord.Interaction, question: str):
             await thinking_msg.edit(content=combined[:2000])
         except Exception:
             pass
-        
+
     response = await bot.agent.handle_message(
-        question, user_id=str(interaction.user.id),
-        progress_callback=progress_callback
+        question, user_id=str(interaction.user.id), progress_callback=progress_callback
     )
     await interaction.followup_send(response[:2000], ephemeral=True)
 
