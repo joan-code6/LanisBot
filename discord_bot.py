@@ -35,7 +35,7 @@ class SPHDiscordBot(discord.Client):
         logger.info(f"Logged in as {self.user}")
         await self.setup()
 
-    async def on_message(self, message):
+async def on_message(self, message):
         if message.author.bot:
             return
 
@@ -43,15 +43,27 @@ class SPHDiscordBot(discord.Client):
             return
 
         user_message = message.content.strip()
-        if user_message:
+        if not user_message:
+            return
+        
+        thinking_msg = await message.reply("🤔 thinking...")
+        
+        progress_text = []
+        
+        async def progress_callback(update: str):
+            progress_text.append(update)
+            combined = "🤔 **thinking...**\n\n" + "\n\n".join(progress_text)
             try:
-                await message.add_reaction("👀")
+                await thinking_msg.edit(content=combined[:2000])
             except Exception:
                 pass
+            
         response = await self.agent.handle_message(
-            user_message, user_id=str(message.author.id)
+            user_message, user_id=str(message.author.id),
+            progress_callback=progress_callback
         )
-        await message.reply(response)
+        
+        await thinking_msg.edit(content=response[:2000])
 
     async def start_bot(self, token: str):
         await self.start(token)
@@ -71,10 +83,24 @@ async def ask_command(interaction: discord.Interaction, question: str):
         return
 
     await interaction.response.defer()
+    
+    thinking_msg = await interaction.followup_send("🤔 thinking...", ephemeral=True)
+    
+    progress_text = []
+    
+    async def progress_callback(update: str):
+        progress_text.append(update)
+        combined = "🤔 **thinking...**\n\n" + "\n\n".join(progress_text)
+        try:
+            await thinking_msg.edit(content=combined[:2000])
+        except Exception:
+            pass
+        
     response = await bot.agent.handle_message(
-        question, user_id=str(interaction.user.id)
+        question, user_id=str(interaction.user.id),
+        progress_callback=progress_callback
     )
-    await interaction.followup.send(response)
+    await interaction.followup_send(response[:2000], ephemeral=True)
 
 
 @app_commands.command(name="login", description="Set your SPH credentials")

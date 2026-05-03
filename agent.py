@@ -21,6 +21,14 @@ except ImportError:
     DISCORD_AVAILABLE = False
     discord = None
 
+try:
+    from whatsapp_bot import SPHWhatsAppBot, setup_whatsapp_bot
+
+    WHATSAPP_AVAILABLE = True
+except ImportError:
+    WHATSAPP_AVAILABLE = False
+    SPHWhatsAppBot = None
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -32,6 +40,7 @@ class SPHAgent:
         self.api = sph_client.SchulportalHessenAPI()
         self.credentials = CredentialsStore()
         self.discord_bot = None
+        self.whatsapp_bot = None
         self.user_monitors: dict[str, asyncio.Task] = {}
         self.user_memories: dict[str, Memory] = {}
 
@@ -42,7 +51,10 @@ class SPHAgent:
         logger.info("HAI client initialized")
 
     async def handle_message(
-        self, user_message: str, user_id: str | None = None
+        self,
+        user_message: str,
+        user_id: str | None = None,
+        progress_callback: callable = None,
     ) -> str:
         if user_id:
             ready = await self._ensure_credentials(user_id)
@@ -63,7 +75,7 @@ class SPHAgent:
             return {"error": "Unknown tool"}
 
         response = await self.hai.chat_with_tool_loop(
-            memory, user_message, execute_tool, user_data
+            memory, user_message, execute_tool, user_data, progress_callback
         )
 
         if user_id:
@@ -358,11 +370,28 @@ You have memory that contains:
                 await self._start_user_monitor(user_id, creds)
 
         discord_token = os.getenv("DISCORD_BOT_TOKEN")
+        whatsapp_enabled = os.getenv("WHATSAPP_PHONE_ID") and os.getenv(
+            "WHATSAPP_TOKEN"
+        )
+
         if discord_token and DISCORD_AVAILABLE:
             self.discord_bot = SPHDiscordBot(self, self.memory)
             setup_tree(self.discord_bot)
             await self.discord_bot.start_bot(discord_token)
-        else:
+
+        if whatsapp_enabled and WHATSAPP_AVAILABLE:
+            self.whatsapp_bot = setup_whatsapp_bot(self, self.memory)
+            wa_app = await self.whatsapp_bot.start_webhook()
+
+            import threading
+
+            port = int(os.getenv("WHATSAPP_PORT", 5000))
+            threading.Thread(
+                target=lambda: wa_app.run(host="0.0.0.0", port=port), daemon=True
+            ).start()
+            logger.info(f"WhatsApp webhook running on port {port}")
+
+        if not discord_token and not whatsapp_enabled:
             while True:
                 await asyncio.sleep(60)
 

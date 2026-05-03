@@ -257,23 +257,34 @@ class HAIClient:
         return data["choices"][0]["message"]
 
     async def chat_with_tool_loop(
-        self, memory: dict, user_message: str, execute_tool, user_data: str = None
+        self,
+        memory: dict,
+        user_message: str,
+        execute_tool,
+        user_data: str = None,
+        progress_callback: callable = None,
     ) -> str:
         system_prompt = self._build_system_prompt(memory, user_data)
         messages = [{"role": "user", "content": user_message}]
 
         max_tool_rounds = 10
-        for _ in range(max_tool_rounds):
+        for round_num in range(max_tool_rounds):
             msg = await self.chat(messages, system_prompt, tools=True)
 
             messages.append(msg)
 
             if msg.get("tool_calls"):
+                tool_summaries = []
                 for tc in msg["tool_calls"]:
                     fn = tc["function"]
                     name = fn["name"]
                     args = json.loads(fn["arguments"])
                     result = await execute_tool(name, args)
+
+                    tool_summaries.append(
+                        f"🔧 {name}({json.dumps(args, ensure_ascii=False)}) → {json.dumps(result, ensure_ascii=False)[:200]}"
+                    )
+
                     messages.append(
                         {
                             "role": "tool",
@@ -281,6 +292,9 @@ class HAIClient:
                             "content": json.dumps(result, ensure_ascii=False),
                         }
                     )
+
+                if progress_callback:
+                    await progress_callback("\n".join(tool_summaries))
             else:
                 content = msg.get("content", "")
                 memory["conversation"] = memory.get("conversation", [])
