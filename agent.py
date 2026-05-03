@@ -171,14 +171,33 @@ Notification: [Your message to the user] (or "none" if no notification needed)
             return {"error": "No credentials set"}
 
         dsb_tools = {"sph_get_substitution_plan"}
-        if (
-            name in dsb_tools
-            and creds["school_id"] not in self.HARDCODED_SCHOOL_CREDENTIALS
-        ):
-            return {"error": "DSB tools not available for this school"}
+        if name in dsb_tools:
+            allowed = False
+            stored_creds = self.credentials.get_user_creds(user_id)
+            school_id = stored_creds.get("school_id") if stored_creds else "5201"
+
+            if stored_creds:
+                if stored_creds.get("school_id") in self.HARDCODED_SCHOOL_CREDENTIALS:
+                    allowed = True
+            elif "5201" in self.HARDCODED_SCHOOL_CREDENTIALS:
+                allowed = True
+
+            if not allowed:
+                return {
+                    "error": f"DSB tools not available for school {school_id}. Only schools {list(self.HARDCODED_SCHOOL_CREDENTIALS.keys())} are supported for Vertretungsplan."
+                }
 
         if not self.api.logged_in:
-            self.api.login(creds["school_id"], creds["username"], creds["password"])
+            try:
+                result = self.api.login(
+                    creds["school_id"], creds["username"], creds["password"]
+                )
+                if not result.get("success"):
+                    return {
+                        "error": f"Login failed: {result.get('message', 'unknown')}"
+                    }
+            except Exception as e:
+                return {"error": f"Login error: {e}"}
 
         try:
             if name == "sph_get_messages":
