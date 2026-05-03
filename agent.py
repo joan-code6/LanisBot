@@ -159,33 +159,25 @@ Notification: [Your message to the user] (or "none" if no notification needed)
         if not user_id:
             return {"error": "Missing user id"}
 
-        creds = self.credentials.get_user_creds(user_id)
-        is_hardcoded_school = False
-        if not creds:
-            hardcoded = self.HARDCODED_SCHOOL_CREDENTIALS.get("5201")
-            if hardcoded:
-                creds = {"school_id": "5201", **hardcoded}
-                is_hardcoded_school = True
-
-        if not creds:
-            return {"error": "No credentials set"}
-
         dsb_tools = {"sph_get_substitution_plan"}
-        if name in dsb_tools:
-            allowed = False
-            stored_creds = self.credentials.get_user_creds(user_id)
-            school_id = stored_creds.get("school_id") if stored_creds else "5201"
-
-            if stored_creds:
-                if stored_creds.get("school_id") in self.HARDCODED_SCHOOL_CREDENTIALS:
-                    allowed = True
-            elif "5201" in self.HARDCODED_SCHOOL_CREDENTIALS:
-                allowed = True
-
-            if not allowed:
-                return {
-                    "error": f"DSB tools not available for school {school_id}. Only schools {list(self.HARDCODED_SCHOOL_CREDENTIALS.keys())} are supported for Vertretungsplan."
+        is_dsb = name in dsb_tools
+        
+        stored_creds = self.credentials.get_user_creds(user_id)
+        creds = None
+        
+        if is_dsb:
+            if "5201" in self.HARDCODED_SCHOOL_CREDENTIALS:
+                creds = {
+                    "school_id": "5201",
+                    "username": self.HARDCODED_SCHOOL_CREDENTIALS["5201"]["username"],
+                    "password": self.HARDCODED_SCHOOL_CREDENTIALS["5201"]["password"]
                 }
+            else:
+                return {"error": "DSB (Vertretungsplan) not available for any school"}
+        else:
+            if not stored_creds:
+                return {"error": "No SPH credentials set - please login with `login <school_id> <username> <password>`"}
+            creds = stored_creds
 
         if not self.api.logged_in:
             try:
