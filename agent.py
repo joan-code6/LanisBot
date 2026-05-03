@@ -165,30 +165,35 @@ Notification: [Your message to the user] (or "none" if no notification needed)
         stored_creds = self.credentials.get_user_creds(user_id)
         creds = None
 
+        dsb_creds = None
         if is_dsb:
             if "5201" in self.HARDCODED_SCHOOL_CREDENTIALS:
-                creds = {
-                    "school_id": "5201",
-                    "username": self.HARDCODED_SCHOOL_CREDENTIALS["5201"]["username"],
-                    "password": self.HARDCODED_SCHOOL_CREDENTIALS["5201"]["password"],
-                }
+                dsb_creds = self.HARDCODED_SCHOOL_CREDENTIALS["5201"]
             else:
                 return {"error": "DSB (Vertretungsplan) not available for any school"}
-        else:
-            if not stored_creds:
-                return {
-                    "error": "No SPH credentials set - please login with `login <school_id> <username> <password>`"
-                }
-            creds = stored_creds
+
+        if not stored_creds and not is_dsb:
+            return {
+                "error": "No SPH credentials set - please login with `login <school_id> <username> <password>`"
+            }
 
         if not self.api.logged_in:
             try:
-                if is_dsb:
-                    result = self.api.dsb_login(creds["username"], creds["password"])
-                else:
+                if is_dsb and stored_creds:
                     result = self.api.login(
-                        creds["school_id"], creds["username"], creds["password"]
+                        stored_creds["school_id"],
+                        stored_creds["username"],
+                        stored_creds["password"],
                     )
+                elif stored_creds:
+                    result = self.api.login(
+                        stored_creds["school_id"],
+                        stored_creds["username"],
+                        stored_creds["password"],
+                    )
+                else:
+                    return {"error": "Need SPH login first for DSB access"}
+
                 if not result.get("success"):
                     return {
                         "error": f"Login failed: {result.get('message', 'unknown')}"
@@ -200,7 +205,9 @@ Notification: [Your message to the user] (or "none" if no notification needed)
             if name == "sph_get_messages":
                 return self.api.nachrichten_get_headers()
             if name == "sph_get_substitution_plan":
-                return self.api.dsb_get_substitution_plan()
+                return self.api.dsb_get_substitution_plan(
+                    username=dsb_creds["username"], password=dsb_creds["password"]
+                )
             if name == "sph_get_homework":
                 overview = self.api.meinunterricht_get_overview()
                 if overview.get("success"):
