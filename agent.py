@@ -161,29 +161,34 @@ Notification: [Your message to the user] (or "none" if no notification needed)
 
         dsb_tools = {"sph_get_substitution_plan"}
         is_dsb = name in dsb_tools
-        
+
         stored_creds = self.credentials.get_user_creds(user_id)
         creds = None
-        
+
         if is_dsb:
             if "5201" in self.HARDCODED_SCHOOL_CREDENTIALS:
                 creds = {
                     "school_id": "5201",
                     "username": self.HARDCODED_SCHOOL_CREDENTIALS["5201"]["username"],
-                    "password": self.HARDCODED_SCHOOL_CREDENTIALS["5201"]["password"]
+                    "password": self.HARDCODED_SCHOOL_CREDENTIALS["5201"]["password"],
                 }
             else:
                 return {"error": "DSB (Vertretungsplan) not available for any school"}
         else:
             if not stored_creds:
-                return {"error": "No SPH credentials set - please login with `login <school_id> <username> <password>`"}
+                return {
+                    "error": "No SPH credentials set - please login with `login <school_id> <username> <password>`"
+                }
             creds = stored_creds
 
         if not self.api.logged_in:
             try:
-                result = self.api.login(
-                    creds["school_id"], creds["username"], creds["password"]
-                )
+                if is_dsb:
+                    result = self.api.dsb_login(creds["username"], creds["password"])
+                else:
+                    result = self.api.login(
+                        creds["school_id"], creds["username"], creds["password"]
+                    )
                 if not result.get("success"):
                     return {
                         "error": f"Login failed: {result.get('message', 'unknown')}"
