@@ -207,7 +207,6 @@ class LanisBot(discord.Client):
                 return
 
             await message.channel.typing()
-            await message.reply("Ich verarbeite deine Anfrage...")
             
             ai_result = await ai_agent.chat(user_id, actual_content)
             
@@ -290,9 +289,7 @@ class LanisBot(discord.Client):
             return
 
         await message.channel.typing()
-        await asyncio.sleep(0.5)
         
-        await message.channel.send("🤔 Ich verarbeise deine Anfrage...")
 
         ai_result = await ai_agent.chat(user_id, content)
 
