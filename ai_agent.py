@@ -72,6 +72,8 @@ class AIAgent:
     def __init__(self):
         self.sessions: Dict[str, SchulportalHessenAPI] = {}
         self.session_timestamps: Dict[str, datetime] = {}
+        self.user_data: Dict[str, Dict[str, Any]] = {}
+        self.available_modules: Dict[str, Dict[str, Any]] = {}
         self.result_cache: Dict[str, tuple] = {}
         self.max_iterations = 10
         self.session_timeout_minutes = 30
@@ -92,6 +94,24 @@ class AIAgent:
     def _set_cached_result(self, cache_key: str, result: Dict[str, Any]):
         self.result_cache[cache_key] = (result, datetime.now())
 
+    def _load_user_data(self, api: SchulportalHessenAPI, user_id: str):
+        try:
+            old_stdout, old_stderr = sys.stdout, sys.stderr
+            sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding='utf-8', errors='replace')
+            sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding='utf-8', errors='replace')
+            try:
+                user_data = api.benutzer_get_data()
+                if user_data.get("success"):
+                    self.user_data[user_id] = user_data.get("data", {})
+                
+                modules = api.get_apps()
+                if modules.get("success"):
+                    self.available_modules[user_id] = modules.get("data", {})
+            finally:
+                sys.stdout, sys.stderr = old_stdout, old_stderr
+        except Exception as e:
+            logger.error(f"Failed to load user data for {user_id}: {e}")
+
     def get_or_create_session(self, user_id: str) -> SchulportalHessenAPI:
         now = datetime.now()
         
@@ -106,10 +126,10 @@ class AIAgent:
             del self.sessions[user_id]
             if user_id in self.session_timestamps:
                 del self.session_timestamps[user_id]
-
-    def get_or_create_session(self, user_id: str) -> SchulportalHessenAPI:
-        if user_id in self.sessions:
-            return self.sessions[user_id]
+            if user_id in self.user_data:
+                del self.user_data[user_id]
+            if user_id in self.available_modules:
+                del self.available_modules[user_id]
         
         creds = credential_store.get_credentials(user_id)
         if not creds:
@@ -145,6 +165,8 @@ class AIAgent:
         if result.get("success"):
             self.sessions[user_id] = api
             api.logged_in = True
+            self.session_timestamps[user_id] = datetime.now()
+            self._load_user_data(api, user_id)
         else:
             credential_store.delete_credentials(user_id)
         
@@ -153,6 +175,12 @@ class AIAgent:
     def logout_user(self, user_id: str):
         if user_id in self.sessions:
             del self.sessions[user_id]
+        if user_id in self.session_timestamps:
+            del self.session_timestamps[user_id]
+        if user_id in self.user_data:
+            del self.user_data[user_id]
+        if user_id in self.available_modules:
+            del self.available_modules[user_id]
         credential_store.delete_credentials(user_id)
 
     def execute_code(self, user_id: str, code: str) -> str:
