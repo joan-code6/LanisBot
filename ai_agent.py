@@ -262,6 +262,7 @@ class AIAgent:
         
         last_error = None
         last_tool_calls = []
+        tool_call_results = []
         for iteration in range(self.max_iterations):
             try:
                 async with aiohttp.ClientSession() as session:
@@ -274,7 +275,7 @@ class AIAgent:
                             text = await resp.text()
                             error_msg = f"API error {resp.status}: {text[:200]}"
                             logger.error(error_msg)
-                            return {"success": False, "error": error_msg, "user_message": "Der KI-Dienst antwortet nicht. Bitte versuche es später erneut."}
+                            return {"success": False, "error": error_msg, "user_message": "Der KI-Dienst antwortet nicht. Bitte versuche es später erneut.", "tool_calls": []}
                         
                         result = await resp.json()
                         choice = result.get("choices", [{}])[0]
@@ -295,24 +296,27 @@ class AIAgent:
                                     code_result = self.execute_code(user_id, code)
                                     messages.append({"role": "assistant", "tool_calls": [tc]})
                                     messages.append({"role": "tool", "tool_call_id": call_id, "content": code_result})
+                                    tool_call_results.append({"tool": name, "code": code[:200], "result": code_result[:500]})
                                 elif name == "get_user_data":
                                     user_data = self.user_data.get(user_id, {})
                                     data_result = json.dumps(user_data, ensure_ascii=False, indent=2)
                                     messages.append({"role": "assistant", "tool_calls": [tc]})
                                     messages.append({"role": "tool", "tool_call_id": call_id, "content": data_result})
+                                    tool_call_results.append({"tool": name, "result": data_result[:500]})
                                 elif name == "get_available_modules":
                                     modules = self.available_modules.get(user_id, {})
                                     modules_result = json.dumps(modules, ensure_ascii=False, indent=2)
                                     messages.append({"role": "assistant", "tool_calls": [tc]})
                                     messages.append({"role": "tool", "tool_call_id": call_id, "content": modules_result})
+                                    tool_call_results.append({"tool": name, "result": modules_result[:500]})
                                 elif name == "send_message":
                                     final_msg = args.get("message", "")
                                     self._save_to_history(user_id, message, final_msg)
-                                    return {"success": True, "final_message": final_msg}
+                                    return {"success": True, "final_message": final_msg, "tool_calls": tool_call_results}
 
                         elif content and content.strip():
                             self._save_to_history(user_id, message, content)
-                            return {"success": True, "final_message": content}
+                            return {"success": True, "final_message": content, "tool_calls": tool_call_results}
 
                         continue
             except asyncio.TimeoutError:
@@ -329,7 +333,7 @@ class AIAgent:
                 logger.error(f"Unexpected error for user {user_id}: {e}")
         
         user_message = self._get_user_friendly_error(last_error) if last_error else "Die Anfrage hat zu lange gedauert. Bitte versuche es erneut."
-        return {"success": False, "error": last_error or "Max iterations reached", "user_message": user_message}
+        return {"success": False, "error": last_error or "Max iterations reached", "user_message": user_message, "tool_calls": tool_call_results}
 
     def _save_to_history(self, user_id: str, user_msg: str, assistant_response: str, tool_used: bool = False):
         if user_id not in self.conversation_history:

@@ -67,6 +67,16 @@ class LanisBot(discord.Client):
         self.rate_limiter = RateLimiter(max_requests=10, window_seconds=60)
         self._shutdown_event = asyncio.Event()
         self._start_time = datetime.now()
+        self._debug_users = set()
+        
+    async def _debug_send(self, user_id: str, title: str, content: str, color: discord.Color = discord.Color.teal()):
+        if user_id in self._debug_users:
+            target_user = self.get_user(int(user_id))
+            if target_user:
+                embed = discord.Embed(title=title, color=color)
+                embed.add_field(name="Inhalt", value=f"```\n{content[:1500]}\n```", inline=False)
+                embed.set_footer(text=f"Zeit: {datetime.now()}")
+                await target_user.send(embed=embed)
 
     async def setup_hook(self):
         self.tree = app_commands.CommandTree(self)
@@ -153,6 +163,16 @@ class LanisBot(discord.Client):
             
             await interaction.response.send_message(embed=embed, ephemeral=True)
         
+        @self.tree.command(name="debug", description="Enable/disable debug mode to see all Discord activity")
+        async def debug_command(interaction: discord.Interaction):
+            user_id = str(interaction.user.id)
+            if user_id in self._debug_users:
+                self._debug_users.discard(user_id)
+                await interaction.response.send_message("🔇 Debug-Modus deaktiviert.", ephemeral=True)
+            else:
+                self._debug_users.add(user_id)
+                await interaction.response.send_message("🔦 Debug-Modus aktiviert! Du siehst jetzt alle Bot-Aktivitäten.", ephemeral=True)
+        
         await self.tree.sync()
         logger.info("Slash commands synced!")
 
@@ -210,6 +230,22 @@ class LanisBot(discord.Client):
             
             ai_result = await ai_agent.chat(user_id, actual_content)
             
+            tool_calls = ai_result.get("tool_calls", [])
+            if tool_calls:
+                tool_info = "🔧 **Tool-Aufrufe:**\n\n"
+                for tc in tool_calls:
+                    tool_name = tc.get("tool", "unknown")
+                    code = tc.get("code", "")
+                    result = tc.get("result", "")[:300]
+                    tool_info += f"**{tool_name}**\n"
+                    if code:
+                        tool_info += f"Code: ```python\n{code}\n```\n"
+                    if result:
+                        tool_info += f"Ergebnis: ```\n{result}\n```\n"
+                await self._debug_send(user_id, "🔧 Tool-Aufrufe", tool_info)
+            else:
+                await self._debug_send(user_id, "⚠️ Keine Tool-Aufrufe", "Keine Tools wurden verwendet - direkte Antwort")
+            
             if not ai_result.get("success"):
                 user_message = ai_result.get("user_message")
                 if user_message:
@@ -225,6 +261,7 @@ class LanisBot(discord.Client):
                         await message.reply(final_msg[i:i + 2000])
                 else:
                     await message.reply(final_msg)
+                await self._debug_send(user_id, "📤 Bot Antwort", final_msg)
 
     async def handle_dm(self, message: discord.Message):
         user_id = str(message.author.id)
@@ -293,6 +330,22 @@ class LanisBot(discord.Client):
 
         ai_result = await ai_agent.chat(user_id, content)
 
+        tool_calls = ai_result.get("tool_calls", [])
+        if tool_calls:
+            tool_info = "🔧 **Tool-Aufrufe:**\n\n"
+            for tc in tool_calls:
+                tool_name = tc.get("tool", "unknown")
+                code = tc.get("code", "")
+                result = tc.get("result", "")[:300]
+                tool_info += f"**{tool_name}**\n"
+                if code:
+                    tool_info += f"Code: ```python\n{code}\n```\n"
+                if result:
+                    tool_info += f"Ergebnis: ```\n{result}\n```\n"
+            await self._debug_send(user_id, "🔧 Tool-Aufrufe", tool_info)
+        else:
+            await self._debug_send(user_id, "⚠️ Keine Tool-Aufrufe", "Keine Tools wurden verwendet - direkte Antwort")
+
         if not ai_result.get("success"):
             user_message = ai_result.get("user_message")
             if user_message:
@@ -304,6 +357,7 @@ class LanisBot(discord.Client):
         final_msg = ai_result.get("final_message")
         if final_msg:
             await message.channel.send(final_msg)
+            await self._debug_send(user_id, "📤 Bot Antwort", final_msg)
 
         logger.info(f"Responded to {user_id}")
 
