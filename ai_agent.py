@@ -41,6 +41,28 @@ TOOL_DESCRIPTIONS = [
     {
         "type": "function",
         "function": {
+            "name": "get_user_data",
+            "description": "Get cached user profile data (name, email, etc.) from earlier login",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_available_modules",
+            "description": "Get cached available modules/apps from LANIS",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "send_message",
             "description": "Send a final message to the Discord user",
             "parameters": {
@@ -262,6 +284,16 @@ class AIAgent:
                                     code_result = self.execute_code(user_id, code)
                                     messages.append({"role": "assistant", "tool_calls": [tc]})
                                     messages.append({"role": "tool", "tool_call_id": call_id, "content": code_result})
+                                elif name == "get_user_data":
+                                    user_data = self.user_data.get(user_id, {})
+                                    data_result = json.dumps(user_data, ensure_ascii=False, indent=2)
+                                    messages.append({"role": "assistant", "tool_calls": [tc]})
+                                    messages.append({"role": "tool", "tool_call_id": call_id, "content": data_result})
+                                elif name == "get_available_modules":
+                                    modules = self.available_modules.get(user_id, {})
+                                    modules_result = json.dumps(modules, ensure_ascii=False, indent=2)
+                                    messages.append({"role": "assistant", "tool_calls": [tc]})
+                                    messages.append({"role": "tool", "tool_call_id": call_id, "content": modules_result})
                                 elif name == "send_message":
                                     return {"success": True, "final_message": args.get("message", "")}
 
