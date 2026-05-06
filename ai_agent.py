@@ -257,9 +257,11 @@ class AIAgent:
         if not HAI_API_KEY:
             return {"success": False, "error": "No AI API key configured", "user_message": "Bot ist nicht richtig konfiguriert. Bitte kontaktiere den Administrator."}
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": message}]
+        history = self.conversation_history.get(user_id, [])
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history + [{"role": "user", "content": message}]
         
         last_error = None
+        last_tool_calls = []
         for iteration in range(self.max_iterations):
             try:
                 async with aiohttp.ClientSession() as session:
@@ -304,9 +306,12 @@ class AIAgent:
                                     messages.append({"role": "assistant", "tool_calls": [tc]})
                                     messages.append({"role": "tool", "tool_call_id": call_id, "content": modules_result})
                                 elif name == "send_message":
-                                    return {"success": True, "final_message": args.get("message", "")}
+                                    final_msg = args.get("message", "")
+                                    self._save_to_history(user_id, message, final_msg)
+                                    return {"success": True, "final_message": final_msg}
 
                         elif content and content.strip():
+                            self._save_to_history(user_id, message, content)
                             return {"success": True, "final_message": content}
 
                         continue
@@ -326,16 +331,16 @@ class AIAgent:
         user_message = self._get_user_friendly_error(last_error) if last_error else "Die Anfrage hat zu lange gedauert. Bitte versuche es erneut."
         return {"success": False, "error": last_error or "Max iterations reached", "user_message": user_message}
 
-    def _save_to_history(self, user_id: str, user_msg: str, assistant_msg: str, has_tools: bool = False):
+    def _save_to_history(self, user_id: str, user_msg: str, assistant_response: str, tool_used: bool = False):
         if user_id not in self.conversation_history:
             self.conversation_history[user_id] = []
         
         self.conversation_history[user_id].append({"role": "user", "content": user_msg})
         
-        if has_tools:
-            self.conversation_history[user_id].append({"role": "assistant", "content": ""})
-        elif assistant_msg:
-            self.conversation_history[user_id].append({"role": "assistant", "content": assistant_msg})
+        if tool_used:
+            self.conversation_history[user_id].append({"role": "assistant", "content": "<tool calls used>"})
+        elif assistant_response:
+            self.conversation_history[user_id].append({"role": "assistant", "content": assistant_response})
 
 
 ai_agent = AIAgent()
