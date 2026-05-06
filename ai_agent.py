@@ -74,7 +74,7 @@ TOOL_DESCRIPTIONS = [
     },
 ]
 
-SYSTEM_PROMPT = """Du bist ein hilfreicher Assistent für Schüler, der ihr Schulportal (LANIS) abfragen kann.
+SYSTEM_PROMPT = """Du bist ein hilfreicher Assistent für Schüler, die ihr Schulportal (SPH oder LANIS) abfragen kann.
 
 Ein 'api' Objekt (SchulportalHessenAPI) ist für dich eingeloggt, wenn du eingeloggt bist.
 
@@ -97,6 +97,7 @@ class AIAgent:
         self.user_data: Dict[str, Dict[str, Any]] = {}
         self.available_modules: Dict[str, Dict[str, Any]] = {}
         self.result_cache: Dict[str, tuple] = {}
+        self.conversation_history: Dict[str, list] = {}
         self.max_iterations = 10
         self.session_timeout_minutes = 30
         self.cache_ttl_seconds = 60
@@ -203,7 +204,13 @@ class AIAgent:
             del self.user_data[user_id]
         if user_id in self.available_modules:
             del self.available_modules[user_id]
+        if user_id in self.conversation_history:
+            del self.conversation_history[user_id]
         credential_store.delete_credentials(user_id)
+
+    def clear_history(self, user_id: str):
+        if user_id in self.conversation_history:
+            del self.conversation_history[user_id]
 
     def execute_code(self, user_id: str, code: str) -> str:
         api = self.get_or_create_session(user_id)
@@ -248,7 +255,8 @@ class AIAgent:
         if not HAI_API_KEY:
             return {"success": False, "error": "No AI API key configured", "user_message": "Bot ist nicht richtig konfiguriert. Bitte kontaktiere den Administrator."}
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": message}]
+        history = self.conversation_history.get(user_id, [])
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history + [{"role": "user", "content": message}]
         
         last_error = None
         for iteration in range(self.max_iterations):
@@ -295,7 +303,9 @@ class AIAgent:
                                     messages.append({"role": "assistant", "tool_calls": [tc]})
                                     messages.append({"role": "tool", "tool_call_id": call_id, "content": modules_result})
                                 elif name == "send_message":
-                                    return {"success": True, "final_message": args.get("message", "")}
+                                    final = args.get("message", "")
+                                    self._save_to_history(user_id, message, final, tool_calls)
+                                    return {"success": True, "final_message": final}
 
                         elif content and content.strip():
                             return {"success": True, "final_message": content}
@@ -316,6 +326,17 @@ class AIAgent:
         
         user_message = self._get_user_friendly_error(last_error) if last_error else "Die Anfrage hat zu lange gedauert. Bitte versuche es erneut."
         return {"success": False, "error": last_error or "Max iterations reached", "user_message": user_message}
+
+    def _save_to_history(self, user_id: str, user_msg: str, assistant_msg: str, tool_calls: list = None):
+        if user_id not in self.conversation_history:
+            self.conversation_history[user_id] = []
+        
+        self.conversation_history[user_id].append({"role": "user", "content": user_msg})
+        
+        if tool_calls:
+            self.conversation_history[user_id].append({"role": "assistant", "content": assistant_msg, "tool_calls": tool_calls})
+        elif assistant_msg:
+            self.conversation_history[user_id].append({"role": "assistant", "content": assistant_msg})
 
 
 ai_agent = AIAgent()

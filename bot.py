@@ -88,6 +88,12 @@ class LanisBot(discord.Client):
             ai_agent.logout_user(user_id)
             await interaction.response.send_message("✅ Erfolgreich abgemeldet!", ephemeral=True)
         
+        @self.tree.command(name="new", description="Start a new conversation (clears history)")
+        async def new_command(interaction: discord.Interaction):
+            user_id = str(interaction.user.id)
+            ai_agent.clear_history(user_id)
+            await interaction.response.send_message("✅ Neue Konversation gestartet! Alles vorherige wurde vergessen.", ephemeral=True)
+        
         @self.tree.command(name="status", description="Check your login status")
         async def status_command(interaction: discord.Interaction):
             user_id = str(interaction.user.id)
@@ -260,6 +266,11 @@ class LanisBot(discord.Client):
         if parsed.command == CommandType.LOGOUT:
             ai_agent.logout_user(user_id)
             await message.channel.send("✅ Erfolgreich abgemeldet!")
+            return
+
+        if parsed.command == CommandType.UNKNOWN and content.strip().lower() == "/new":
+            ai_agent.clear_history(user_id)
+            await message.channel.send("✅ Neue Konversation gestartet! Alles vorherige wurde vergessen.")
             return
 
         if parsed.command == CommandType.HELP:
