@@ -1,58 +1,100 @@
 # LanisBot
 
-AI agent for SchulportalHessen (SPH) with Discord integration and persistent memory.
+A Discord bot that lets users access their Schulportal Hessen (LANIS) account via direct messages. The bot uses an AI agent to handle all user requests naturally - users just chat with the bot in plain language.
 
-## What it does
-- Answers questions about school data via Discord DMs
-- Stores reminders/notes and full chat history per user
-- Per-user SPH credentials stored encrypted on disk
+## Design Philosophy
+
+This bot is different from traditional command-based bots. Instead of parsing user commands and mapping them to specific functions, **every message is sent to an AI**, which then:
+
+1. **Understands the user's intent** from natural language
+2. **Decides what API calls to make** via the `execute_code()` tool
+3. **Sends the result back** to the user via `send_message()`
+
+### Why No Command Parsing?
+
+The AI already handles everything. If a user says:
+- "show my messages" → AI calls `api.nachrichten_get_headers()`
+- "what homework do I have?" → AI calls `api.meinunterricht_get_overview()`
+- "show my timetable" → AI calls `api.stundenplan_get_plan()`
+- "read message 5" → AI calls `api.nachrichten_get_conversation()`
+
+There is **no need** for manual command parsing. The AI understands context, extracts parameters naturally, and makes the appropriate API calls.
+
+## Architecture
+
+```
+User DM --> Bot --> AI Agent --> SPH API --> Schulportal Hessen
+              |
+              +-> execute_code() - calls sph_client API methods
+              +-> send_message()  - returns results to user
+```
+
+- **bot.py**: Discord bot handling DMs and slash commands
+- **ai_agent.py**: AI agent that processes messages and executes API calls
+- **command_parser.py**: Only handles `/login`, `/logout`, and `/help` (things that must work without AI)
+- **credential_store.py**: Encrypted storage for user credentials
+- **response_formatter.py**: Formats Discord embeds
 
 ## Setup
+
 1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-```bash
-pip install -r requirements.txt
-```
+2. Configure `.env`:
+   ```
+   DISCORD_BOT_TOKEN=your_token
+   CREDENTIALS_MASTER_KEY=random_string
+   HAI_API_KEY=your_hackclub_api_key
+   ```
 
-2. Copy env template and fill it:
+3. Run:
+   ```bash
+   python bot.py
+   ```
 
-```bash
-copy .env.example .env
-```
+## Usage
 
-Required values:
-- `HAI_API_KEY` (Hack Club AI key)
-- `DISCORD_BOT_TOKEN` (optional, to enable Discord bot)
-- `DISCORD_GUILD_ID` (optional, for slash command sync)
-- `DISCORD_CHANNEL_ID` (optional, to post notifications to one channel)
-- `CREDENTIALS_MASTER_KEY` (secret used to encrypt per-user credentials)
-Optional values (only if you still use env-based login):
-- `LANIS_API_USERNAME`, `LANIS_API_PASSWORD`, `LANIS_API_SCHOOL_ID`
-
-## Run
-
-```bash
-python agent.py
-```
-
-## Memory
-The file `memory.json` is created automatically and is always included in the AI context. You can edit it manually.
-
-## Credentials
-On first DM, the bot will ask for SPH credentials. Use:
+### DM Commands
 
 ```
-login <school_id> <username> <password>
+/login [school_id] [username] [password]
+/logout
+/help
+/status
+/about
 ```
 
-Credentials are encrypted and stored in `credentials.json`.
+### Natural Language (via DM)
 
-## Commands
-- `/login` to set SPH credentials
-- `/new` to clear conversation history
-- `/logout` to remove stored credentials
-- `/delete-all-my-data` to delete credentials and memory
+Just chat with the bot naturally:
+- "show my messages"
+- "what homework do I have?"
+- "show my calendar for this week"
+- "what's my timetable?"
+- "show my profile"
 
-## Notes
-- The agent uses the Hack Club AI OpenAI-compatible endpoint: `https://ai.hackclub.com/proxy/v1/chat/completions`
-- To disable Discord, just leave `DISCORD_BOT_TOKEN` unset.
+### Server Commands
+
+In servers, use `!lanis` prefix:
+```
+!lanis show my messages
+!lanis what homework do I have
+```
+
+## Security
+
+- Credentials are encrypted with Fernet (symmetric encryption)
+- Each user has their own encrypted session
+- Sessions expire after 24 hours
+- Passwords are never logged or exposed
+
+## Requirements
+
+- Python 3.9+
+- discord.py 2.0+
+- python-dotenv
+- cryptography
+- aiohttp
+- sph_client (custom package)
